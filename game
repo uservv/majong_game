@@ -1,0 +1,180 @@
+import random
+import tkinter as tk
+
+TILE_SIZE = 64
+COLS = 10
+ROWS = 8
+MARGIN = 10
+UI_HEIGHT = 80
+TILE_GAP = 4
+TILE_TYPES = 20
+COPIES_PER_TYPE = 4
+
+WINDOW_WIDTH = COLS * TILE_SIZE + MARGIN * 2
+WINDOW_HEIGHT = ROWS * TILE_SIZE + MARGIN * 2 + UI_HEIGHT
+
+class MahjongApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title('Mahjong Lite (Tkinter)')
+        self.canvas = tk.Canvas(root, width=WINDOW_WIDTH, height=ROWS * TILE_SIZE + MARGIN * 2, bg='#283040')
+        self.canvas.pack()
+        self.control_frame = tk.Frame(root, height=UI_HEIGHT, bg='#1e2228')
+        self.control_frame.pack(fill='x')
+
+        self.hint_btn = tk.Button(self.control_frame, text='Hint', command=self.show_hint)
+        self.shuffle_btn = tk.Button(self.control_frame, text='Shuffle', command=self.shuffle)
+        self.restart_btn = tk.Button(self.control_frame, text='Restart', command=self.restart)
+        self.hint_btn.pack(side='left', padx=10, pady=10)
+        self.shuffle_btn.pack(side='left', padx=10, pady=10)
+        self.restart_btn.pack(side='left', padx=10, pady=10)
+
+        self.status_label = tk.Label(self.control_frame, text='', bg='#1e2228', fg='white')
+        self.status_label.pack(side='right', padx=10)
+
+        self.canvas.bind('<Button-1>', self.on_click)
+        self.selected = None
+        self.hint_pair = None
+        self.score = 0
+        self.reset_grid()
+        self.redraw()
+
+    def create_deck(self):
+        deck = []
+        for t in range(TILE_TYPES):
+            deck += [t] * COPIES_PER_TYPE
+        total = COLS * ROWS
+        if len(deck) > total:
+            deck = deck[:total]
+        random.shuffle(deck)
+        while len(deck) < total:
+            deck.append(None)
+        return deck
+
+    def build_grid(self, deck):
+        grid = []
+        it = iter(deck)
+        for r in range(ROWS):
+            row = []
+            for c in range(COLS):
+                row.append(next(it))
+            grid.append(row)
+        return grid
+
+    def reset_grid(self):
+        deck = self.create_deck()
+        self.grid = self.build_grid(deck)
+        self.selected = None
+        self.hint_pair = None
+        self.score = 0
+
+    def restart(self):
+        self.reset_grid()
+        self.redraw()
+
+    def shuffle(self):
+        tiles = [self.grid[r][c] for r in range(ROWS) for c in range(COLS) if self.grid[r][c] is not None]
+        random.shuffle(tiles)
+        it = iter(tiles)
+        for r in range(ROWS):
+            for c in range(COLS):
+                if self.grid[r][c] is not None:
+                    self.grid[r][c] = next(it)
+        self.selected = None
+        self.hint_pair = None
+        self.redraw()
+
+    def count_remaining(self):
+        return sum(1 for r in range(ROWS) for c in range(COLS) if self.grid[r][c] is not None)
+
+    def is_free(self, col, row):
+        if self.grid[row][col] is None:
+            return False
+        left_free = (col == 0) or (self.grid[row][col - 1] is None)
+        right_free = (col == COLS - 1) or (self.grid[row][col + 1] is None)
+        return left_free or right_free
+
+    def find_any_matching_pair(self):
+        free = []
+        for r in range(ROWS):
+            for c in range(COLS):
+                if self.grid[r][c] is not None and self.is_free(c, r):
+                    free.append((c, r, self.grid[r][c]))
+        for i in range(len(free)):
+            for j in range(i + 1, len(free)):
+                if free[i][2] == free[j][2]:
+                    return (free[i], free[j])
+        return None
+
+    def show_hint(self):
+        pair = self.find_any_matching_pair()
+        self.hint_pair = pair
+        self.redraw()
+
+    def screen_to_cell(self, x, y):
+        if x < MARGIN or y < MARGIN or x >= MARGIN + COLS * TILE_SIZE or y >= MARGIN + ROWS * TILE_SIZE:
+            return None
+        col = (x - MARGIN) // TILE_SIZE
+        row = (y - MARGIN) // TILE_SIZE
+        return int(col), int(row)
+
+    def on_click(self, event):
+        cell = self.screen_to_cell(event.x, event.y)
+        if not cell:
+            return
+        c, r = cell
+        if self.grid[r][c] is None:
+            return
+        if not self.is_free(c, r):
+            return
+        if self.selected is None:
+            self.selected = (c, r)
+        else:
+            if self.selected == (c, r):
+                self.selected = None
+            else:
+                c1, r1 = self.selected
+                if self.grid[r1][c1] == self.grid[r][c]:
+                    self.grid[r1][c1] = None
+                    self.grid[r][c] = None
+                    self.score += 1
+                    self.selected = None
+                    self.hint_pair = None
+                else:
+                    self.selected = (c, r)
+        self.redraw()
+
+    def redraw(self):
+        self.canvas.delete('all')
+        for r in range(ROWS):
+            for c in range(COLS):
+                x = MARGIN + c * TILE_SIZE + TILE_GAP
+                y = MARGIN + r * TILE_SIZE + TILE_GAP
+                w = TILE_SIZE - TILE_GAP * 2
+                h = TILE_SIZE - TILE_GAP * 2
+                val = self.grid[r][c]
+                if val is None:
+                    self.canvas.create_rectangle(x, y, x + w, y + h, fill='#1e2228', outline='#1e2228')
+                else:
+                    seed = (val * 37) % 255
+                    color = '#%02x%02x%02x' % (120 + seed // 2, 120 + (255 - seed) // 3, max(0, 200 - seed // 4))
+                    self.canvas.create_rectangle(x, y, x + w, y + h, fill=color, outline='#222')
+                    self.canvas.create_text(x + w // 2, y + h // 2, text=str(val), font=('Helvetica', 16, 'bold'))
+                if self.selected == (c, r):
+                    self.canvas.create_rectangle(x, y, x + w, y + h, outline='yellow', width=3)
+                if self.hint_pair:
+                    a, b = self.hint_pair
+                    if (c, r) == (a[0], a[1]) or (c, r) == (b[0], b[1]):
+                        self.canvas.create_rectangle(x, y, x + w, y + h, outline='lime', width=3)
+        rem = self.count_remaining()
+        status = f'Remaining: {rem}    Score: {self.score}'
+        if rem == 0:
+            status += '    You win! Press Restart.'
+        if self.find_any_matching_pair() is None and rem > 0:
+            status += '    No moves — try Shuffle.'
+        self.status_label.config(text=status)
+
+if __name__ == '__main__':
+    root = tk.Tk()
+    app = MahjongApp(root)
+    root.mainloop()
